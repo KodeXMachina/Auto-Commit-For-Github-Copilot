@@ -489,6 +489,16 @@ body {
     color: var(--vscode-editor-foreground, #cccccc);
 }
 
+.commit-card-action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.commit-card-action-btn:disabled:hover {
+    background: none;
+    color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
 /* ── Inline edit ────────────────────────────────────────────────────────────── */
 
 .commit-card-edit {
@@ -686,10 +696,12 @@ body {
 
 .file-changes-body {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
 }
 
 .file-row {
+    min-width: 0;
     border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
 }
 
@@ -699,6 +711,7 @@ body {
 
 .file-row-header {
     width: 100%;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -760,6 +773,7 @@ body {
 
 .file-row-path {
     flex: 1;
+    min-width: 0;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 12px;
     overflow: hidden;
@@ -801,29 +815,33 @@ body {
 }
 
 .file-row-diff {
+    min-width: 0;
     background: var(--vscode-editor-background, #1e1e1e);
     overflow-x: auto;
+    overflow-y: hidden;
 }
 
 /* ── Diff table (GitHub-style) ──────────────────────────────────────────────── */
 
 .diff-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     font-family: var(--vscode-editor-font-family, 'Courier New', monospace);
     font-size: 12px;
     line-height: 1.6;
-    table-layout: fixed;
+    table-layout: auto;
 }
 
 .diff-table td {
     padding: 0;
     vertical-align: top;
+    white-space: pre;
 }
 
-.diff-gutter {
-    width: 44px;
-    min-width: 44px;
+.diff-line-number {
+    width: 48px;
+    min-width: 48px;
     text-align: right;
     padding: 0 6px;
     color: var(--vscode-editorLineNumber-foreground, #6e7681);
@@ -845,7 +863,7 @@ body {
 .diff-code {
     white-space: pre;
     padding: 0 8px;
-    overflow: hidden;
+    min-width: max-content;
 }
 
 .diff-hunk-content {
@@ -861,8 +879,9 @@ tr.diff-add .diff-sign {
     color: #3fb950;
 }
 
-tr.diff-add .diff-gutter {
+tr.diff-add .diff-line-number {
     color: #3fb950;
+    box-shadow: inset 3px 0 #3fb950;
 }
 
 tr.diff-del td {
@@ -873,8 +892,9 @@ tr.diff-del .diff-sign {
     color: #f85149;
 }
 
-tr.diff-del .diff-gutter {
+tr.diff-del .diff-line-number {
     color: #f85149;
+    box-shadow: inset 3px 0 #f85149;
 }
 
 tr.diff-hunk td {

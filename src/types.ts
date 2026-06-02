@@ -44,7 +44,7 @@ export type ExtensionMessage =
     | { type: 'addCandidate'; candidate: CommitCandidate }
     | { type: 'done' }
     | { type: 'error'; message: string }
-    | { type: 'committed'; count: number }
+    | { type: 'committed'; count: number; ids: string[] }
     | { type: 'settings'; settings: GenerateOptions }
     | { type: 'availableModels'; models: Array<{ id: string; name: string }> }
     | { type: 'diffContent'; path: string; content: string }
@@ -54,6 +54,7 @@ export type ExtensionMessage =
 /** Messages sent from the webview → extension host */
 export type WebviewMessage =
     | { type: 'ready' }
+    | { type: 'updateSettings'; settings: Partial<GenerateOptions> }
     | { type: 'regenerate'; settings: GenerateOptions }
     | { type: 'commit'; ids: string[]; orderedCandidates?: CommitCandidate[] }
     | { type: 'openFile'; path: string }

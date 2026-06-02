@@ -6,6 +6,7 @@ export function getSettings(): GenerateOptions {
     return {
         conventionalCommits: config.get<boolean>('conventionalCommits', true),
         language: config.get<string>('language', 'en'),
+        model: config.get<string>('model', ''),
     };
 }
 
@@ -20,5 +21,8 @@ export async function updateSettings(partial: Partial<GenerateOptions>): Promise
     }
     if (partial.language !== undefined) {
         await config.update('language', partial.language, vscode.ConfigurationTarget.Global);
+    }
+    if (partial.model !== undefined) {
+        await config.update('model', partial.model || '', vscode.ConfigurationTarget.Global);
     }
 }

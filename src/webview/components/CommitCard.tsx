@@ -6,6 +6,8 @@ interface Props {
     candidate: CommitCandidate;
     index: number;
     onToggle: () => void;
+    onCommitOne: () => void;
+    committing: boolean;
     onOpenFile: (path: string) => void;
     onUpdateMessage: (message: string) => void;
     onDragStart: (index: number) => void;
@@ -14,7 +16,7 @@ interface Props {
 }
 
 export default function CommitCard({
-    candidate, index, onToggle, onOpenFile, onUpdateMessage,
+    candidate, index, onToggle, onCommitOne, committing, onOpenFile, onUpdateMessage,
     onDragStart, onDragOver, onDrop,
 }: Props) {
     const [expanded, setExpanded] = useState(true);
@@ -103,6 +105,17 @@ export default function CommitCard({
                 </div>
                 {!editing && (
                     <div className="commit-card-actions">
+                        <button
+                            className="commit-card-action-btn"
+                            title="Commit this"
+                            disabled={committing}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onCommitOne();
+                            }}
+                        >
+                            <Check size={13} />
+                        </button>
                         <button
                             className="commit-card-action-btn"
                             title="Edit message"

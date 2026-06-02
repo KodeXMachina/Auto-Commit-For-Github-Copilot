@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getSettings } from '../config/settings';
+import { getSettings, updateSettings } from '../config/settings';
 import { groupFiles, parseDiff } from '../git/diffAnalyzer';
 import { GitService } from '../git/gitService';
 import { generateForAllGroups, generateGroupedCommits, getAvailableModels } from '../llm/llmService';
@@ -10,6 +10,8 @@ import type {
     GitLogEntry,
     WebviewMessage,
 } from '../types';
+
+type ModelInfo = { id: string; name: string };
 
 export class PanelManager {
     private static instance: PanelManager | undefined;
@@ -22,6 +24,8 @@ export class PanelManager {
     private currentRepoRoot: string | undefined;
     private targetRepoUri: vscode.Uri | undefined;
     private recentCommits: GitLogEntry[] = [];
+    private availableModels: ModelInfo[] | undefined;
+    private generationRunId = 0;
 
     private constructor(private readonly context: vscode.ExtensionContext) { }
 
@@ -110,21 +114,40 @@ export class PanelManager {
     private async handleMessage(msg: WebviewMessage): Promise<void> {
         switch (msg.type) {
             case 'ready': {
-                const settings = this.effectiveSettings();
+                const models = await this.loadModels();
+                const settings = await this.normalizeModelSetting(
+                    this.effectiveSettings(),
+                    models,
+                    true
+                );
                 this.post({ type: 'settings', settings });
-                // Run the three loads in parallel so the panel becomes interactive faster.
                 await Promise.all([
-                    this.loadModels(),
                     this.loadStagedFiles(),
                     this.loadCommitHistory(),
                 ]);
                 break;
             }
 
-            case 'regenerate': {
-                if (msg.settings.language !== 'auto') {
-                    this.sessionLanguage = msg.settings.language;
+            case 'updateSettings': {
+                await updateSettings(msg.settings);
+                if (msg.settings.language !== undefined) {
+                    this.sessionLanguage =
+                        msg.settings.language === 'auto' ? undefined : msg.settings.language;
                 }
+                if (msg.settings.model !== undefined) {
+                    const settings = await this.normalizeModelSetting(
+                        this.effectiveSettings(),
+                        this.availableModels,
+                        true
+                    );
+                    this.post({ type: 'settings', settings });
+                }
+                break;
+            }
+
+            case 'regenerate': {
+                this.sessionLanguage =
+                    msg.settings.language === 'auto' ? undefined : msg.settings.language;
                 await this.loadStagedFiles();
                 await this.generate(msg.settings);
                 break;
@@ -157,7 +180,9 @@ export class PanelManager {
             }
 
             case 'cancel': {
+                this.generationRunId += 1;
                 this.cancellation?.cancel();
+                this.post({ type: 'done' });
                 break;
             }
 
@@ -173,12 +198,15 @@ export class PanelManager {
 
     // ─── Load models ────────────────────────────────────────────────────────────
 
-    private async loadModels(): Promise<void> {
+    private async loadModels(): Promise<ModelInfo[] | undefined> {
         try {
             const models = await getAvailableModels();
+            this.availableModels = models;
             this.post({ type: 'availableModels', models });
+            return models;
         } catch (err) {
             console.error('[AutoCommit] Failed to load models:', err);
+            return undefined;
         }
     }
 
@@ -238,12 +266,15 @@ export class PanelManager {
         this.cancellation?.cancel();
         this.cancellation = new vscode.CancellationTokenSource();
         const token = this.cancellation.token;
+        const runId = ++this.generationRunId;
+        const isActiveRun = () => runId === this.generationRunId && !token.isCancellationRequested;
 
         this.candidates = [];
         this.post({ type: 'loading' });
 
         try {
             const repo = await GitService.getRepository(this.targetRepoUri);
+            if (!isActiveRun()) { return; }
             if (!repo) {
                 this.post({ type: 'error', message: 'No Git repository found. Make sure the workspace contains a git repository.' });
                 return;
@@ -253,19 +284,28 @@ export class PanelManager {
             this.currentRepoRoot = gitService.repoRoot;
             this.targetRepoUri = repo.rootUri;
 
-            let settings = overrideSettings ?? this.effectiveSettings();
+            const requestedSettings = overrideSettings ?? this.effectiveSettings();
+            let settings = await this.normalizeModelSetting(requestedSettings, undefined, true);
+            if ((requestedSettings.model ?? '') !== (settings.model ?? '')) {
+                this.post({ type: 'settings', settings });
+            }
 
             if (settings.language === 'auto') {
                 settings = { ...settings, language: await gitService.detectLanguage() };
+                if (!isActiveRun()) { return; }
             }
 
             let diff: string;
             try {
                 diff = await gitService.getStagedDiff();
             } catch (err) {
-                this.post({ type: 'error', message: `Failed to read staged diff: ${String(err)}` });
+                if (isActiveRun()) {
+                    this.post({ type: 'error', message: `Failed to read staged diff: ${String(err)}` });
+                }
                 return;
             }
+
+            if (!isActiveRun()) { return; }
 
             if (!diff.trim()) {
                 this.post({
@@ -283,7 +323,9 @@ export class PanelManager {
             }
 
             if (changes.length === 0) {
-                this.post({ type: 'error', message: 'Could not analyse the staged changes.' });
+                if (isActiveRun()) {
+                    this.post({ type: 'error', message: 'Could not analyse the staged changes.' });
+                }
                 return;
             }
 
@@ -293,7 +335,12 @@ export class PanelManager {
                 // in a single call.
                 let candidates: CommitCandidate[];
                 try {
-                    candidates = await generateGroupedCommits(changes, settings, token, this.recentCommits);
+                    candidates = await generateGroupedCommits(
+                        changes,
+                        settings,
+                        token,
+                        this.recentCommits
+                    );
                 } catch (groupingErr) {
                     if (token.isCancellationRequested || groupingErr instanceof vscode.CancellationError) {
                         throw groupingErr;
@@ -303,46 +350,51 @@ export class PanelManager {
                     console.warn('[AutoCommit] AI grouping failed, falling back to rule-based grouping:', groupingErr);
                     const groups = groupFiles(changes);
                     if (groups.length === 0) {
-                        this.post({ type: 'error', message: 'Could not analyse the staged changes.' });
+                        if (isActiveRun()) {
+                            this.post({ type: 'error', message: 'Could not analyse the staged changes.' });
+                        }
                         return;
                     }
                     candidates = await generateForAllGroups(groups, settings, token, this.recentCommits);
                 }
 
+                if (!isActiveRun()) { return; }
                 for (const candidate of candidates) {
                     if (token.isCancellationRequested) {
                         break;
                     }
+                    if (!isActiveRun()) { break; }
                     this.candidates.push(candidate);
                     this.post({ type: 'addCandidate', candidate });
                 }
             } catch (err) {
-                if (!(token.isCancellationRequested || err instanceof vscode.CancellationError)) {
+                if (isActiveRun() && !(token.isCancellationRequested || err instanceof vscode.CancellationError)) {
                     this.post({ type: 'error', message: `Generation failed: ${String(err)}` });
                 }
             }
         } catch (err) {
-            this.post({ type: 'error', message: `Generation failed: ${String(err)}` });
+            if (isActiveRun()) {
+                this.post({ type: 'error', message: `Generation failed: ${String(err)}` });
+            }
         }
 
-        this.post({ type: 'done' });
+        if (isActiveRun()) {
+            this.post({ type: 'done' });
+        }
     }
 
     // ─── Commit execution ───────────────────────────────────────────────────────
 
     private async commitSelected(ids: string[], orderedCandidates?: CommitCandidate[]): Promise<void> {
         // Use ordered candidates from webview if provided (user may have reordered/edited)
-        let selected: CommitCandidate[];
-        if (orderedCandidates) {
-            selected = orderedCandidates.filter((c) => ids.includes(c.id));
-        } else {
-            selected = this.candidates.filter((c) => ids.includes(c.id));
-        }
+        const allCandidates = orderedCandidates ?? this.candidates;
+        const selected = allCandidates.filter((c) => ids.includes(c.id));
         if (selected.length === 0) {
             return;
         }
 
-        const unchecked = this.candidates.filter((c) => !ids.includes(c.id));
+        const committedIds = selected.map((c) => c.id);
+        const unchecked = allCandidates.filter((c) => !committedIds.includes(c.id));
         const uncheckedFiles = unchecked.flatMap((c) => c.files);
 
         const repo = await GitService.getRepository(this.targetRepoUri);
@@ -365,7 +417,8 @@ export class PanelManager {
                 await gitService.restoreStaged(uncheckedFiles);
             }
 
-            this.post({ type: 'committed', count: selected.length });
+            this.candidates = allCandidates.filter((c) => !committedIds.includes(c.id));
+            this.post({ type: 'committed', count: selected.length, ids: committedIds });
 
             void vscode.window.showInformationMessage(
                 `AutoCommit: ${selected.length} commit${selected.length > 1 ? 's' : ''} created.`
@@ -400,6 +453,32 @@ export class PanelManager {
                 // ignore
             }
         }
+    }
+
+    private async normalizeModelSetting(
+        settings: GenerateOptions,
+        models?: ModelInfo[],
+        persistFallback = false
+    ): Promise<GenerateOptions> {
+        const model = settings.model ?? '';
+        const normalized = { ...settings, model };
+        if (!model) {
+            return normalized;
+        }
+
+        const availableModels = models ?? this.availableModels ?? (await this.loadModels());
+        if (!availableModels) {
+            return normalized;
+        }
+        if (availableModels.some((available) => available.id === model)) {
+            return normalized;
+        }
+
+        const fallback = { ...normalized, model: '' };
+        if (persistFallback) {
+            await updateSettings({ model: '' });
+        }
+        return fallback;
     }
 
     private effectiveSettings(): GenerateOptions {

@@ -8,9 +8,13 @@ interface Props {
     onOpenFile: (path: string) => void;
     onReorder: (candidates: CommitCandidate[]) => void;
     onUpdateMessage: (id: string, message: string) => void;
+    onCommitOne: (id: string) => void;
+    committing: boolean;
 }
 
-export default function CandidatesList({ candidates, onToggle, onOpenFile, onReorder, onUpdateMessage }: Props) {
+export default function CandidatesList({
+    candidates, onToggle, onOpenFile, onReorder, onUpdateMessage, onCommitOne, committing,
+}: Props) {
     const dragIndex = useRef<number | null>(null);
     const dragOverIndex = useRef<number | null>(null);
 
@@ -54,6 +58,8 @@ export default function CandidatesList({ candidates, onToggle, onOpenFile, onReo
                     onToggle={() => onToggle(c.id)}
                     onOpenFile={onOpenFile}
                     onUpdateMessage={(msg) => onUpdateMessage(c.id, msg)}
+                    onCommitOne={() => onCommitOne(c.id)}
+                    committing={committing}
                     onDragStart={handleDragStart}
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}

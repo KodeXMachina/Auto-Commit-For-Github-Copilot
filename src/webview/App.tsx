@@ -15,6 +15,7 @@ interface StagedFile {
 
 interface AppState {
     generating: boolean;
+    committing: boolean;
     candidates: CommitCandidate[];
     stagedFiles: StagedFile[];
     stagedLoading: boolean;
@@ -28,10 +29,11 @@ interface AppState {
 
 type Action =
     | { type: 'SET_LOADING' }
+    | { type: 'SET_COMMITTING'; committing: boolean }
     | { type: 'ADD_CANDIDATE'; candidate: CommitCandidate }
     | { type: 'DONE' }
     | { type: 'ERROR'; message: string }
-    | { type: 'COMMITTED'; count: number }
+    | { type: 'COMMITTED'; count: number; ids: string[] }
     | { type: 'SET_SETTINGS'; settings: GenerateOptions }
     | { type: 'SET_MODELS'; models: Array<{ id: string; name: string }> }
     | { type: 'SET_STAGED_FILES'; files: StagedFile[] }
@@ -44,6 +46,7 @@ type Action =
 
 const initialState: AppState = {
     generating: false,
+    committing: false,
     candidates: [],
     stagedFiles: [],
     stagedLoading: true,
@@ -59,16 +62,19 @@ function reducer(state: AppState, action: Action): AppState {
     switch (action.type) {
         case 'SET_LOADING':
             return { ...state, generating: true, candidates: [], error: null, success: null };
+        case 'SET_COMMITTING':
+            return { ...state, committing: action.committing, error: null, success: null };
         case 'ADD_CANDIDATE':
             return { ...state, candidates: [...state.candidates, action.candidate] };
         case 'DONE':
             return { ...state, generating: false };
         case 'ERROR':
-            return { ...state, generating: false, error: action.message };
+            return { ...state, generating: false, committing: false, error: action.message };
         case 'COMMITTED':
             return {
                 ...state,
-                candidates: [],
+                committing: false,
+                candidates: state.candidates.filter((c) => !action.ids.includes(c.id)),
                 success: `${action.count} commit${action.count > 1 ? 's' : ''} created successfully.`,
             };
         case 'SET_SETTINGS':
@@ -123,7 +129,7 @@ export default function App() {
                     dispatch({ type: 'ERROR', message: msg.message });
                     break;
                 case 'committed':
-                    dispatch({ type: 'COMMITTED', count: msg.count });
+                    dispatch({ type: 'COMMITTED', count: msg.count, ids: msg.ids });
                     break;
                 case 'settings':
                     dispatch({ type: 'SET_SETTINGS', settings: msg.settings });
@@ -145,6 +151,9 @@ export default function App() {
     }, []);
 
     const handleGenerate = useCallback(() => {
+        if (state.committing) {
+            return;
+        }
         dispatch({ type: 'ERROR', message: '' }); // clear error
         postMessage({
             type: 'regenerate',
@@ -153,14 +162,26 @@ export default function App() {
                 prompt: state.prompt,
             },
         });
-    }, [state.settings, state.prompt]);
+    }, [state.settings, state.prompt, state.committing]);
 
     const handleCommit = useCallback(() => {
+        if (state.committing) {
+            return;
+        }
         const ids = state.candidates.filter((c) => c.checked).map((c) => c.id);
         if (ids.length > 0) {
+            dispatch({ type: 'SET_COMMITTING', committing: true });
             postMessage({ type: 'commit', ids, orderedCandidates: state.candidates });
         }
-    }, [state.candidates]);
+    }, [state.candidates, state.committing]);
+
+    const handleCommitOne = useCallback((id: string) => {
+        if (state.committing || !state.candidates.some((c) => c.id === id)) {
+            return;
+        }
+        dispatch({ type: 'SET_COMMITTING', committing: true });
+        postMessage({ type: 'commit', ids: [id], orderedCandidates: state.candidates });
+    }, [state.candidates, state.committing]);
 
     const handleOpenFile = useCallback((path: string) => {
         postMessage({ type: 'openFile', path });
@@ -172,6 +193,10 @@ export default function App() {
 
     const handleUpdateSetting = useCallback((key: string, value: unknown) => {
         dispatch({ type: 'UPDATE_SETTING', key, value });
+        postMessage({
+            type: 'updateSettings',
+            settings: { [key]: value } as Partial<GenerateOptions>,
+        });
     }, []);
 
     const handleSetPrompt = useCallback((prompt: string) => {
@@ -223,7 +248,7 @@ export default function App() {
                         ) : (
                             <button
                                 className="btn-generate"
-                                disabled={!hasStaged}
+                                disabled={!hasStaged || state.committing}
                                 onClick={handleGenerate}
                             >
                                 <Sparkles size={16} />
@@ -231,7 +256,7 @@ export default function App() {
                             </button>
                         )}
                         {showCandidates && !state.generating && (
-                            <button className="btn-regen" onClick={handleGenerate}>
+                            <button className="btn-regen" disabled={state.committing} onClick={handleGenerate}>
                                 <RotateCw size={16} />
                                 Regenerate
                             </button>
@@ -253,7 +278,7 @@ export default function App() {
                     {state.generating && state.candidates.length === 0 && (
                         <div className="loading-wrap">
                             <div className="spinner" />
-                            <span>Generating commit messages…</span>
+                            <span>Generating commit messages...</span>
                         </div>
                     )}
 
@@ -285,10 +310,12 @@ export default function App() {
                                         onOpenFile={handleOpenFile}
                                         onReorder={handleReorderCandidates}
                                         onUpdateMessage={handleUpdateMessage}
+                                        onCommitOne={handleCommitOne}
+                                        committing={state.committing}
                                     />
                                     <button
                                         className="btn-commit-all"
-                                        disabled={checkedCount === 0}
+                                        disabled={checkedCount === 0 || state.committing}
                                         onClick={handleCommit}
                                     >
                                         <Check size={16} />

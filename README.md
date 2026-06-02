@@ -56,10 +56,10 @@ npm run compile
 npx --yes @vscode/vsce package \
     --no-dependencies \
     --allow-missing-repository \
-    --out autocommit-for-github-copilot-0.2.0.vsix
+    --out autocommit-for-github-copilot.vsix
 
 # 5. Install the resulting .vsix into VS Code
-code --install-extension autocommit-for-github-copilot-0.2.0.vsix
+code --install-extension autocommit-for-github-copilot.vsix
 ```
 
 After installation, reload VS Code if prompted. You should see a
