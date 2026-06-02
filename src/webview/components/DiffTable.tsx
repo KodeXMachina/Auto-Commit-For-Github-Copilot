@@ -69,24 +69,24 @@ export default function DiffTable({ content }: Props) {
                     if (l.type === 'meta') {
                         return (
                             <tr key={i} className="diff-meta">
-                                <td colSpan={4}>{l.raw}</td>
+                                <td colSpan={3}>{l.raw}</td>
                             </tr>
                         );
                     }
                     if (l.type === 'hunk') {
                         return (
                             <tr key={i} className="diff-hunk">
-                                <td className="diff-gutter" />
-                                <td className="diff-gutter" />
-                                <td colSpan={2} className="diff-hunk-content">{l.raw}</td>
+                                <td className="diff-line-number" />
+                                <td className="diff-sign" />
+                                <td className="diff-hunk-content">{l.raw}</td>
                             </tr>
                         );
                     }
                     const cls = l.type === 'add' ? 'diff-add' : l.type === 'del' ? 'diff-del' : 'diff-ctx';
+                    const lineNumber = l.newN ?? l.oldN ?? '';
                     return (
                         <tr key={i} className={cls}>
-                            <td className="diff-gutter">{l.oldN ?? ''}</td>
-                            <td className="diff-gutter">{l.newN ?? ''}</td>
+                            <td className="diff-line-number">{lineNumber}</td>
                             <td className="diff-sign">{l.sign}</td>
                             <td className="diff-code">{l.text}</td>
                         </tr>
