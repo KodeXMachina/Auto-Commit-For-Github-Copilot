@@ -11,7 +11,7 @@ interface Props {
 }
 
 export default function SettingsPanel({ settings, models, prompt, onUpdate, onPromptChange }: Props) {
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(true);
 
     return (
         <div className="panel-card">
